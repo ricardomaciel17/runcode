@@ -117,7 +117,6 @@ def process_names(names, max_workers=3):
 
         for i, name in enumerate(names, 1):
 
-            # pausa longa a cada 20 envios
             if i % 20 == 0:
                 time.sleep(random.uniform(15, 34))
 
@@ -185,35 +184,27 @@ def run_v1():
     input_file = "corrida02.xlsx"
     output_file = "resultados.xlsx"
 
-    # carregar nomes
     names = load_names(input_file)
 
-    # processar resultados
     results, total, failed = process_names(names)
 
-    # 🔹 ordenar resultados: verdes → azuis → resto
     def get_priority(result):
         pos = extract_number(result.get("posicao", 9999))
         pace = pace_to_seconds(result.get("pace", "99:99"))
 
         if pace < 240:
-            return 0  # verde
+            return 0  
         elif pos <= 10:
-            return 1  # azul
+            return 1  
         else:
-            return 2  # resto
+            return 2  
 
     results_sorted = sorted(results, key=get_priority)
 
-    # salvar no Excel já ordenado
     pd.DataFrame(results_sorted).to_excel(output_file, index=False)
 
-    # colorir células
     color_results(output_file)
 
     print("Finished ✅")
     print(f"Nomes lidos: {total}")
     print(f"Perdas: {failed}")
-
-
-    #salvar commit
