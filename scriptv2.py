@@ -106,16 +106,27 @@ def process_names(names, max_workers=3):
     return results, total, failed
 
 def sort_by_priority(results):
-    def get_priority(result):
+    def get_color_priority(result):
         pos = extract_number(result.get("posicao", 9999))
         pace = pace_to_seconds(result.get("pace", "99:99"))
-        if pace < 240:
+
+        # Mesma regra usada no color_results: azul para top 10, verde para pace < 4:00
+        if pos <= 10:
             return 0
-        elif pos <= 10:
+        if pace < 240:
             return 1
-        else:
-            return 2
-    return sorted(results, key=get_priority)
+        return 2
+
+    painted = [r for r in results if get_color_priority(r) < 2]
+    not_painted = [r for r in results if get_color_priority(r) == 2]
+
+    painted_sorted = sorted(
+        painted,
+        key=lambda r: (get_color_priority(r), normalize_text(r.get("nome", "")).lower()),
+    )
+
+    # Mantem os nao pintados sem regra forte de ordenacao.
+    return painted_sorted + not_painted
 
 def color_results(filepath):
     wb = load_workbook(filepath)
@@ -150,7 +161,8 @@ def run_v2():
         print("URL inválida.")
         return []
 
-    is_onsports = "onsports" in url.lower()
+    is_onsports = "onsports" in url.lower() or "mycrono" in url.lower()
+    is_runking = "runking" in url.lower() 
     flow_name = "OnSports / RaceZone" if is_onsports else "RSF"
     print(f"Usando fluxo: {flow_name}")
 
@@ -197,7 +209,22 @@ def run_v2():
         print(f"Atletas filtrados: {len(filtered_names)}")
 
         results, total, failed = process_names(filtered_names)
+    elif is_runking:
+        from playwright.sync_api import sync_playwright
 
+        url = "https://resultados.runking.com.br/sportsland/jurere-night-run-hard-rock-cafe-florianopolis-2026?modalityStart=5K&genderStart=M&page=1&pageStart=1"
+
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=False)
+            page = browser.new_page()
+
+            page.goto(url)
+            page.wait_for_timeout(5000)
+
+            text = page.inner_text("body") 
+            print(text[:2000])  # mostra os primeiros 2000 caracteres
+
+            browser.close()
     else:
         athletes, percursos = parse_rsf_event(url)
         if not athletes:
