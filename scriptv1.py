@@ -43,37 +43,72 @@ def fetch_last_result(name):
             return None
 
         soup = BeautifulSoup(response.text, "html.parser")
+        event = soup.find("h3", class_="or-event-card-title")
+        if not event:
+            event = soup.find("h3", class_="h6")
 
-        event = soup.find("h3", class_="h6")
         if not event:
             return None
 
         modality = None
-        for a in event.find_all("a", href=True):
-            href = a["href"]
-            if "?modalidade=" in href and "categoria=" not in href:
-                modality = normalize_text(a.text)
-                break
+        container = event.find_parent()
+        if container:
+            for a in container.find_all("a", href=True):
+                href = a["href"]
+                if "?modalidade=" in href and "categoria=" not in href:
+                    modality = normalize_text(a.get_text())
+                    break
 
-        table = event.find_next("table")
-        if not table:
-            return None
+        if not modality:
+            for a in soup.find_all("a", href=True):
+                href = a["href"]
+                if "?modalidade=" in href and "categoria=" not in href:
+                    modality = normalize_text(a.get_text())
+                    break
 
-        rows = table.find_all("tr")
-        if len(rows) < 2:
-            return None
+        pace = None
+        tempo = None
+        posicao = None
 
-        data = [
-            normalize_text(td.text)
-            for td in rows[1].find_all("td")
-        ]
+        stats_container = None
+        if container:
+            stats_container = container.find(class_="or-athlete-result-stats")
+        if not stats_container:
+            stats_container = soup.find(class_="or-athlete-result-stats")
+
+        if stats_container:
+            for stat in stats_container.find_all(class_="or-athlete-result-stat"):
+                label_tag = stat.find("small")
+                value_tag = stat.find("strong")
+                label = normalize_text(label_tag.get_text()) if label_tag else ""
+                value = normalize_text(value_tag.get_text()) if value_tag else ""
+
+                lower_label = label.lower()
+                if "pace" in lower_label:
+                    pace = value
+                elif "líquido" in lower_label or "liquido" in lower_label:
+                    tempo = value
+                elif "geral" in lower_label:
+                    posicao = value
+                elif "categoria" in lower_label and not posicao:
+                    posicao = value
+
+        if not any([pace, tempo, posicao]):
+            table = event.find_next("table")
+            if table:
+                rows = table.find_all("tr")
+                if len(rows) >= 2:
+                    data = [normalize_text(td.text) for td in rows[1].find_all("td")]
+                    posicao = data[1] if len(data) > 1 else posicao
+                    pace = data[4] if len(data) > 4 else pace
+                    tempo = data[5] if len(data) > 5 else tempo
 
         return {
             "nome": normalize_text(name),
             "modalidade": modality,
-            "posicao": data[1],
-            "pace": data[4],
-            "tempo": data[5],
+            "posicao": posicao,
+            "pace": pace,
+            "tempo": tempo,
         }
 
     except Exception:
