@@ -14,25 +14,58 @@ session = requests.Session()
 session.headers.update({"User-Agent": "Mozilla/5.0"})
 
 def parse_rsf_event(url):
-    try:
-        r = session.get(url, timeout=10)
-        r.encoding = "utf-8"
-        root = ET.fromstring(r.text)
+    """Lê atletas de um evento RSF/RaceTag.
 
+    Os eventos novos são publicados como uma lista JSON em ``results.json``.
+    O formato antigo do CLAX (XML) continua sendo aceito como fallback.
+    """
+    try:
+        response = session.get(url, timeout=10)
+        response.raise_for_status()
+
+        # Formato atual: [{"nm": "Nome", "g": "F", "r": "codigo-do-percurso", ...}]
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+
+        if isinstance(data, list):
+            athletes = []
+            percursos_set = set()
+
+            for athlete in data:
+                if not isinstance(athlete, dict):
+                    continue
+
+                nome = normalize_text(athlete.get("nm"))
+                percurso = normalize_text(athlete.get("r"))
+                sexo = normalize_text(athlete.get("g")).upper()
+                if nome and percurso:
+                    athletes.append({
+                        "nome": nome,
+                        "percurso": percurso,
+                        "sexo": sexo or None,
+                    })
+                    percursos_set.add(percurso)
+
+            return athletes, sorted(percursos_set)
+
+        # Compatibilidade com o formato antigo .clax em XML.
+        response.encoding = "utf-8"
+        root = ET.fromstring(response.text)
         athletes = []
         percursos_set = set()
 
         for athlete in root.findall(".//Engages/E"):
-            nome = athlete.attrib.get("n")
-            percurso = athlete.attrib.get("p")
+            nome = normalize_text(athlete.attrib.get("n"))
+            percurso = normalize_text(athlete.attrib.get("p"))
             if nome and percurso:
-                athletes.append({"nome": nome, "percurso": percurso})
+                athletes.append({"nome": nome, "percurso": percurso, "sexo": None})
                 percursos_set.add(percurso)
 
-        percursos = sorted(list(percursos_set))
-        return athletes, percursos
-    except Exception as e:
-        print(f"Erro ao processar Clax: {e}")
+        return athletes, sorted(percursos_set)
+    except (requests.RequestException, ET.ParseError, ValueError) as e:
+        print(f"Erro ao processar evento RSF/CLAX: {e}")
         return [], []
 
 def fetch_last_result(name):
@@ -268,18 +301,34 @@ def run_v2():
             print("Nenhum atleta encontrado.")
             return []
 
-        print("Percursos disponíveis:")
-        for i, p in enumerate(percursos, 1):
-            print(f"{i} - {p}")
+        # No JSON novo, o mesmo percurso possui grupos separados por sexo.
+        # Mantemos a combinação para reproduzir os filtros da página do evento.
+        grupos = sorted({
+            (a.get("sexo") or "", a["percurso"])
+            for a in athletes
+        })
+        sexo_labels = {
+            "F": "Feminino",
+            "M": "Masculino",
+            "X": "Equipe/Misto",
+            "": "Sexo não informado",
+        }
 
-        choice = input("Escolha o número do percurso (Enter para todos): ").strip()
-        if choice.isdigit() and 1 <= int(choice) <= len(percursos):
-            chosen_percurso = percursos[int(choice) - 1]
+        print("Grupos disponíveis (sexo + percurso):")
+        for i, (sexo, percurso) in enumerate(grupos, 1):
+            print(f"{i} - {sexo_labels.get(sexo, sexo)} / {percurso}")
+
+        choice = input("Escolha o número do grupo (Enter para todos): ").strip()
+        if choice.isdigit() and 1 <= int(choice) <= len(grupos):
+            chosen_sexo, chosen_percurso = grupos[int(choice) - 1]
         else:
+            chosen_sexo = None
             chosen_percurso = None
 
         filtered_names = [
-            a["nome"] for a in athletes if (a["percurso"] == chosen_percurso or not chosen_percurso)
+            a["nome"] for a in athletes
+            if (a["percurso"] == chosen_percurso or not chosen_percurso)
+            and (a.get("sexo") == chosen_sexo or not chosen_sexo)
         ]
         print(f"Atletas filtrados: {len(filtered_names)}")
 

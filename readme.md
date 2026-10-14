@@ -115,9 +115,11 @@ Enter event URL (RSF or OnSports):
 
 Flow:
 
-1. Parse the event **XML**
-2. List available **courses (percursos)**
-3. Optionally filter by course
+1. Parse the event **JSON** published by RaceTag (`results.json`)
+2. Read the athlete name from `nm`, sex from `g` and course code from `r`
+3. List available groups by **sex + course (percurso)** and optionally filter by group
+
+Older `.clax` XML URLs remain supported as a compatibility fallback.
 
 ---
 
